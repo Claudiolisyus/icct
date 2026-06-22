@@ -1,0 +1,188 @@
+rules_version = '2';
+
+/**
+ * This Firestore Security Ruleset is designed for an appointment booking system.
+ *
+ * Core Philosophy:
+ * The security model implements a combination of Role-Based Access Control (RBAC) and
+ * Ownership-based access. Administrative users ('Admin', 'Registrar') are granted
+ * broad permissions based on their role, while standard users ('Student') are
+ * restricted to creating and managing only their own data.
+ *
+ * Data Structure:
+ * The data is organized into several top-level collections: `/users`, `/services`,
+ * `/appointments`, and two special collections for role management (`/roles_admin`
+ * and `/roles_registrar`). This structure is intentionally flat to support efficient,
+ * secure queries and avoid costly hierarchical lookups in rules.
+ *
+ * Key Security Decisions:
+ * - Role Management: User roles ('Admin', 'Registrar') are managed by the existence of
+ *   a document in the `/roles_admin/{userId}` or `/roles_registrar/{userId}` collections.
+ *   This allows for extremely fast and inexpensive role verification using `exists()`
+ *   calls, a core principle of this ruleset.
+ * - Authorization Independence: Documents contain denormalized IDs for authorization.
+ *   For example, each `/appointments` document stores a `studentId`. This allows rules
+ *   to verify ownership directly from the document being accessed, eliminating slow
+ *   and costly `get()` calls to other documents.
+ * - User Data Privacy: Users can only read and write their own profile in `/users/{userId}`.
+ *   Listing the entire `/users` collection is prohibited for non-admins to prevent
+ *   data leakage.
+ * - Public vs. Restricted Data: The `/services` collection is publicly readable by anyone
+ *   to allow clients to fetch service options, but write access is restricted to
+ *   admins and registrars.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------------
+    // Helper Functions
+    // ------------------------------------------------------------------------
+
+    /**
+     * Checks if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Checks if the authenticated user's UID matches the provided userId.
+     * This is the primary function for verifying document ownership.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * Checks if the authenticated user is an administrator.
+     * Verification is done by checking for a corresponding document in the roles_admin collection.
+     */
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+    }
+
+    /**
+     * Checks if the authenticated user is a registrar.
+     * Verification is done by checking for a corresponding document in the roles_registrar collection.
+     */
+    function isRegistrar() {
+      return isSignedIn() && exists(/databases/$(database)/documents/roles_registrar/$(request.auth.uid));
+    }
+
+    /**
+     * Checks if the user has either Admin or Registrar privileges.
+     */
+    function isAdminOrRegistrar() {
+      return isAdmin() || isRegistrar();
+    }
+
+    /**
+     * Validates that a field in the incoming request data matches the authenticated user's UID.
+     * Used on create operations to enforce that the creator sets themselves as the owner.
+     */
+    function createdBySelf(fieldName) {
+      return request.resource.data[fieldName] == request.auth.uid;
+    }
+
+    /**
+     * Validates that a critical relational field is immutable during an update.
+     * Prevents re-assigning ownership or breaking data relationships.
+     */
+    function isImmutable(fieldName) {
+      return request.resource.data[fieldName] == resource.data[fieldName];
+    }
+
+    /**
+     * Validates that the document's internal 'id' field matches its path ID on creation.
+     * Enforces data consistency between the document ID and its contents.
+     */
+    function hasMatchingId(docId) {
+      return request.resource.data.id == docId;
+    }
+
+    // ------------------------------------------------------------------------
+    // Collection Rules
+    // ------------------------------------------------------------------------
+
+    /**
+     * @description Rules for user profiles. Users can create, read, and update their own
+     *              profile. Admins have full access to all user profiles.
+     * @path /users/{userId}
+     * @allow A logged-in user (auth.uid='user123') reads their own document at `/users/user123`. (get)
+     * @deny A logged-in user (auth.uid='user123') attempts to read another user's document at `/users/user456`. (get)
+     * @principle Restricts access to a user's own data tree and prevents enumeration of other users.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && hasMatchingId(userId);
+      allow update: if (isOwner(userId) && resource != null && isImmutable('id') && isImmutable('role')) || (isAdmin() && resource != null && isImmutable('id'));
+      allow delete: if (isOwner(userId) || isAdmin()) && resource != null;
+    }
+
+    /**
+     * @description Rules for services. Services are public and can be read by anyone.
+     *              Only Admins and Registrars can create, update, or delete services.
+     * @path /services/{serviceId}
+     * @allow Any unauthenticated user reads the list of documents at `/services`. (list)
+     * @deny An authenticated non-admin user attempts to create a new service document. (create)
+     * @principle Implements a public-read, admin-only write pattern for shared configuration data.
+     */
+    match /services/{serviceId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isAdminOrRegistrar() && hasMatchingId(serviceId);
+      allow update: if isAdminOrRegistrar() && resource != null && isImmutable('id');
+      allow delete: if isAdminOrRegistrar() && resource != null;
+    }
+
+    /**
+     * @description Rules for appointments. Students can create and manage their own
+     *              appointments. Registrars and Admins can view all appointments to
+     *              manage schedules.
+     * @path /appointments/{appointmentId}
+     * @allow A student (auth.uid='student123') creates a new appointment where `studentId` is 'student123'. (create)
+     * @deny A student (auth.uid='student123') attempts to list all appointments in the collection. (list)
+     * @principle Enforces document ownership for writes and role-based access for reads, using denormalized fields.
+     */
+    match /appointments/{appointmentId} {
+      allow get: if isOwner(resource.data.studentId) || isAdminOrRegistrar();
+      allow list: if isAdminOrRegistrar();
+      allow create: if isSignedIn() && createdBySelf('studentId') && hasMatchingId(appointmentId);
+      allow update: if (isOwner(resource.data.studentId) || isAdminOrRegistrar()) && resource != null && isImmutable('id') && isImmutable('studentId');
+      allow delete: if (isOwner(resource.data.studentId) || isAdmin()) && resource != null;
+    }
+
+    /**
+     * @description Admin role management. Only other Admins can view or manage who is an Admin.
+     *              The existence of a document here grants a user admin privileges.
+     * @path /roles_admin/{userId}
+     * @allow An admin (auth.uid='admin123') creates a document at `/roles_admin/new_admin456`. (create)
+     * @deny Any non-admin user attempts to read, write, or list documents in this collection. (get, list, create, delete)
+     * @principle Secures role-granting collections to prevent unauthorized privilege escalation.
+     */
+    match /roles_admin/{userId} {
+      allow get: if isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if false;
+      allow delete: if isAdmin() && resource != null;
+    }
+
+    /**
+     * @description Registrar role management. Only Admins can view or manage who is a Registrar.
+     *              The existence of a document here grants a user registrar privileges.
+     * @path /roles_registrar/{userId}
+     * @allow An admin (auth.uid='admin123') deletes a document at `/roles_registrar/registrar456`. (delete)
+     * @deny A registrar attempts to add another registrar to this collection. (create)
+     * @principle Secures role-granting collections to prevent unauthorized privilege escalation.
+     */
+    match /roles_registrar/{userId} {
+      allow get: if isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if false;
+      allow delete: if isAdmin() && resource != null;
+    }
+  }
+}

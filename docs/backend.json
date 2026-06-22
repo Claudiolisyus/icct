@@ -1,0 +1,266 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user of the system, which can be either a student booking appointments or an administrator managing them.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The full name of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "The email address of the user, used for notifications and communication.",
+          "format": "email"
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "The phone number of the user, used for SMS notifications."
+        },
+        "role": {
+          "type": "string",
+          "description": "The role of the user within the system (e.g., 'Student', 'Admin', 'Registrar')."
+        },
+        "studentIdNumber": {
+          "type": "string",
+          "description": "The student ID number, applicable if the user's role is 'Student'."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the user record was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when the user record was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "email",
+        "role",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Service": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Service",
+      "type": "object",
+      "description": "Defines the types of services available for appointment booking (e.g., SOG evaluation, prospectus evaluation).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Service entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the service (e.g., 'Summary of Grades Evaluation', 'Prospectus Evaluation')."
+        },
+        "description": {
+          "type": "string",
+          "description": "A detailed description of the service."
+        },
+        "durationMinutes": {
+          "type": "number",
+          "description": "The estimated duration of the service in minutes."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the service record was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when the service record was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "durationMinutes",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Appointment": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Appointment",
+      "type": "object",
+      "description": "Represents a single appointment booking, linking a student to a service at a specific time.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Appointment entity."
+        },
+        "studentId": {
+          "type": "string",
+          "description": "Reference to the User entity for the student who booked the appointment. (Relationship: User 1:N Appointment)"
+        },
+        "studentName": {
+          "type": "string",
+          "description": "Denormalized name of the student for easy display."
+        },
+        "studentEmail": {
+          "type": "string",
+          "description": "Denormalized email of the student for easy display."
+        },
+        "studentIdNumber": {
+          "type": "string",
+          "description": "Denormalized student ID number for easy display."
+        },
+        "contactNumber": {
+          "type": "string",
+          "description": "Contact number provided by the student during booking."
+        },
+        "serviceId": {
+          "type": "string",
+          "description": "Reference to the Service entity for the type of service booked. (Relationship: Service 1:N Appointment)"
+        },
+        "serviceName": {
+          "type": "string",
+          "description": "Denormalized name of the service for easy display."
+        },
+        "appointmentDateTime": {
+          "type": "string",
+          "description": "The scheduled date and time of the appointment.",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the appointment (e.g., 'Pending', 'Confirmed', 'Completed', 'Cancelled')."
+        },
+        "documentUrl": {
+          "type": "string",
+          "description": "URL to the optional document uploaded by the student."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the appointment record was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when the appointment record was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "studentId",
+        "studentName",
+        "studentEmail",
+        "studentIdNumber",
+        "contactNumber",
+        "serviceId",
+        "serviceName",
+        "appointmentDateTime",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores individual user profiles (students, registrars, administrators). The document ID (`userId`) must match the `id` field within the document for self-ownership. Includes denormalized 'id' field matching path parameter for authorization independence.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique ID of the user, corresponding to Firebase Authentication UID."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/services/{serviceId}",
+        "definition": {
+          "entityName": "Service",
+          "schema": {
+            "$ref": "#/backend/entities/Service"
+          },
+          "description": "Contains definitions of various services offered for appointment booking. Publicly readable, modifiable by admins/registrars. The document ID (`serviceId`) must match the `id` field within the document.",
+          "params": [
+            {
+              "name": "serviceId",
+              "description": "The unique ID of the service."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/appointments/{appointmentId}",
+        "definition": {
+          "entityName": "Appointment",
+          "schema": {
+            "$ref": "#/backend/entities/Appointment"
+          },
+          "description": "Stores individual appointment bookings. Includes denormalized `studentId` and `registrarId` fields for authorization independence, allowing direct checks against `request.auth.uid` without `get()` calls. The document ID (`appointmentId`) must match the `id` field within the document.",
+          "params": [
+            {
+              "name": "appointmentId",
+              "description": "The unique ID of the appointment."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/roles_admin/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "A collection used for Database Access Control (DBAC). The existence of a document at this path signifies that the `userId` corresponds to an administrator. This allows atomic role checks in security rules.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique ID of the user who has the 'admin' role."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/roles_registrar/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "A collection used for Database Access Control (DBAC). The existence of a document at this path signifies that the `userId` corresponds to a registrar. This allows atomic role checks in security rules.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique ID of the user who has the 'registrar' role."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The recommended Firestore structure prioritizes Authorization Independence and Queryable Authorization Patterns (QAPs) by denormalizing crucial authorization context directly into the relevant documents and segregating global roles into dedicated collections. \n\n**Authorization Independence:**\n1.  **Users (`/users/{userId}`):** Each user's profile is stored in a document whose ID matches their `userId`. This makes ownership explicit and self-contained within the path and document `id` field, eliminating the need for `get()` calls to verify ownership for profile-specific actions.\n2.  **Services (`/services/{serviceId}`):** Service definitions are globally accessible or restricted based on a simple 'read all' or 'admin write' rule, requiring no complex hierarchical checks.\n3.  **Appointments (`/appointments/{appointmentId}`):** The `studentId` and `registrarId` are explicitly stored (denormalized) within each `Appointment` document. This is critical for authorization independence. When a student attempts to access an appointment, the security rule only needs to check `request.auth.uid == resource.data.studentId`. Similarly, for a registrar, `request.auth.uid == resource.data.registrarId`. There is no need for `get()` calls to parent collections or related user profiles to determine access rights.\n4.  **Roles (`/roles_admin/{userId}`, `/roles_registrar/{userId}`):** Instead of relying on a `role` field within the `/users/{userId}` document (which would require a `get()` call), global roles are managed through the *existence* of a document in a dedicated top-level collections (e.g., `/roles_admin/some_uid`). This makes role checks in security rules extremely efficient and atomic, satisfying the DBAC principle and authorization independence.\n\n**Queryable Authorization Patterns (QAPs):**\n1.  **Students:** Can query `/appointments` using `where('studentId', '==', request.auth.uid)`. The security rules will allow this query and ensure that only appointments matching the authenticated user's ID are returned, directly aligning the query filter with the authorization rule.\n2.  **Registrars:** Given the requirement for registrars to \"organize, monitor schedules, and manage student appointments\" and view an \"admin dashboard showing all bookings and daily schedules,\" registrars will have broader access to `/appointments`. Security rules will check for the existence of `request.auth.uid` in `/roles_registrar` to grant `list` access to all appointments, which supports QAPs as no client-side filtering by a specific registrarId is mandated for *all* appointments.\n3.  **Admins:** Similarly, admins (authenticated via `/roles_admin`) will have full `list` access to `/appointments` and `/users` collections, enabling them to query without restrictions, fully supporting QAPs for their dashboards and reporting.\n4.  **Services:** `/services` can be queried by anyone (authenticated or unauthenticated) to retrieve available services, directly supporting QAPs for public data.\n\nThis design ensures that security rules are straightforward, atomic, and efficient, preventing common pitfalls related to hierarchical data dependencies and enabling robust data access control."
+  }
+}
+    
