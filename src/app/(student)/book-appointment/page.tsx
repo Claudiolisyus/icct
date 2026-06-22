@@ -10,10 +10,18 @@ import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { Upload, X, FileText, Loader2 } from 'lucide-react';
+import { Upload, X, FileText, Loader2, CreditCard } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
-import { db, auth } from '@/lib/firebase'; 
-import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
+import { collection, doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const timeSlots = [
   '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
@@ -35,6 +43,11 @@ const PAYMENT_MODES = [
   { value: 'credit_debit_card', label: 'Credit / Debit Card' },
 ];
 
+const ONLINE_PAYMENT_MODES = ['gcash', 'maya', 'credit_debit_card'];
+
+const PAYMENT_ACCOUNT_NAME = 'ICCT Online Payment';
+const PAYMENT_ACCOUNT_NUMBER = '09468596098';
+
 export default function BookAppointmentPage() {
   const [service, setService] = useState<string>('');
   const [date, setDate] = useState<Date | undefined>(new Date());
@@ -47,6 +60,13 @@ export default function BookAppointmentPage() {
   const [paymentMode, setPaymentMode] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Payment confirmation step ---
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
+  const [pendingAppointmentCode, setPendingAppointmentCode] = useState<string | null>(null);
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [isSubmittingRef, setIsSubmittingRef] = useState(false);
 
   const { toast } = useToast();
   const router = useRouter();
@@ -113,6 +133,7 @@ export default function BookAppointmentPage() {
       combinedDateTime.setHours(parsedHours, parseInt(minutesStr, 10), 0, 0);
 
       const appointmentCode = generateAppointmentCode();
+      const needsOnlineProof = service === 'SOG' && ONLINE_PAYMENT_MODES.includes(paymentMode);
 
       await setDoc(newAppointmentDocRef, {
         id: newAppointmentDocRef.id,
@@ -129,7 +150,9 @@ export default function BookAppointmentPage() {
         hasAttachment: !!selectedFile,
         fileName: selectedFile ? selectedFile.name : null,
         paymentMode: service === 'SOG' ? paymentMode : null,
-        createdAt: serverTimestamp()
+        paymentStatus: needsOnlineProof ? 'Awaiting Reference' : (service === 'SOG' ? 'Not Required Online' : null),
+        referenceNumber: null,
+        createdAt: serverTimestamp(),
       });
 
       toast({
@@ -137,16 +160,14 @@ export default function BookAppointmentPage() {
         description: `Your code is ${appointmentCode}. Save this — you'll need it to check in.`,
       });
 
-      setService('');
-      setTime('');
-      setName('');
-      setStudentId('');
-      setEmail('');
-      setContactNumber('');
-      setSelectedFile(null);
-      setPaymentMode('');
-      router.push('/dashboard');
-
+      if (needsOnlineProof) {
+        setPendingAppointmentId(newAppointmentDocRef.id);
+        setPendingAppointmentCode(appointmentCode);
+        setShowPaymentDialog(true);
+      } else {
+        resetForm();
+        router.push('/dashboard');
+      }
     } catch (error: any) {
       console.error("Firestore Save Error: ", error);
       toast({
@@ -156,6 +177,79 @@ export default function BookAppointmentPage() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setService('');
+    setTime('');
+    setName('');
+    setStudentId('');
+    setEmail('');
+    setContactNumber('');
+    setSelectedFile(null);
+    setPaymentMode('');
+  };
+
+  const handleClosePaymentDialog = async () => {
+    if (pendingAppointmentId) {
+      try {
+        const appointmentDocRef = doc(db, 'appointments', pendingAppointmentId);
+        await updateDoc(appointmentDocRef, {
+          paymentStatus: 'Payment Pending',
+        });
+      } catch (error: any) {
+        console.error('Error updating payment status: ', error);
+      }
+    }
+
+    setShowPaymentDialog(false);
+    setReferenceNumber('');
+    setPendingAppointmentId(null);
+    setPendingAppointmentCode(null);
+    resetForm();
+    router.push('/dashboard');
+  };
+
+  const handleSubmitReference = async () => {
+    if (!referenceNumber.trim() || !pendingAppointmentId) {
+      toast({
+        variant: 'destructive',
+        title: 'Reference Number Required',
+        description: 'Please enter your transaction reference number.',
+      });
+      return;
+    }
+
+    setIsSubmittingRef(true);
+    try {
+      const appointmentDocRef = doc(db, 'appointments', pendingAppointmentId);
+      await updateDoc(appointmentDocRef, {
+        referenceNumber: referenceNumber.trim(),
+        paymentStatus: 'Submitted',
+        proofSubmittedAt: serverTimestamp(),
+      });
+
+      toast({
+        title: 'Reference Number Submitted!',
+        description: 'Your appointment is now pending verification.',
+      });
+
+      setShowPaymentDialog(false);
+      setReferenceNumber('');
+      setPendingAppointmentId(null);
+      setPendingAppointmentCode(null);
+      resetForm();
+      router.push('/dashboard');
+    } catch (error: any) {
+      console.error('Reference Submit Error: ', error);
+      toast({
+        variant: 'destructive',
+        title: 'Submission Failed',
+        description: error.message || 'Could not save reference number. Please try again.',
+      });
+    } finally {
+      setIsSubmittingRef(false);
     }
   };
 
@@ -356,6 +450,68 @@ export default function BookAppointmentPage() {
           </CardContent>
         </form>
       </Card>
+
+      {/* Payment confirmation + reference number dialog */}
+      <Dialog
+        open={showPaymentDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleClosePaymentDialog();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              Complete Your Payment
+            </DialogTitle>
+            <DialogDescription>
+              Appointment <span className="font-semibold">{pendingAppointmentCode}</span> is reserved.
+              Please pay using the details below, then enter your transaction reference number.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Payment details */}
+            <div className="rounded-lg border bg-muted/50 p-4 space-y-1">
+              <p className="text-sm text-muted-foreground">Pay to</p>
+              <p className="font-semibold">{PAYMENT_ACCOUNT_NAME}</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                {PAYMENT_MODES.find(m => m.value === paymentMode)?.label} Number
+              </p>
+              <p className="font-semibold text-lg tracking-wide">{PAYMENT_ACCOUNT_NUMBER}</p>
+            </div>
+
+            {/* Reference number input */}
+            <div className="space-y-2">
+              <Label htmlFor="referenceNumber">Transaction Reference Number</Label>
+              <Input
+                id="referenceNumber"
+                type="text"
+                placeholder="e.g. 1234567890123"
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter the reference number from your {PAYMENT_MODES.find(m => m.value === paymentMode)?.label} transaction receipt.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={handleSubmitReference}
+              disabled={isSubmittingRef || !referenceNumber.trim()}
+            >
+              {isSubmittingRef && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {isSubmittingRef ? 'Submitting...' : 'Submit Reference Number'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

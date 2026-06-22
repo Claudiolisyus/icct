@@ -22,7 +22,6 @@ const statusColors: { [key: string]: 'default' | 'secondary' | 'destructive' | '
   Cancelled: 'destructive',
 };
 
-// ✅ NEW: Payment mode display labels
 const paymentModeLabels: { [key: string]: string } = {
   cash: 'Cash',
   gcash: 'GCash',
@@ -85,6 +84,13 @@ async function handleUpdateStatus(appointmentId: string, status: 'Confirmed' | '
   }
 }
 
+const paymentStatusColors: { [key: string]: string } = {
+  'Submitted': 'text-green-600',
+  'Awaiting Reference': 'text-yellow-600',
+  'Payment Pending': 'text-orange-500',
+  'Not Required Online': 'text-muted-foreground',
+};
+
 export const columns: ColumnDef<Appointment>[] = [
   {
     id: "select",
@@ -128,7 +134,6 @@ export const columns: ColumnDef<Appointment>[] = [
     accessorKey: "serviceName",
     header: "Service",
   },
-  // ✅ NEW: Payment mode column
   {
     accessorKey: "paymentMode",
     header: "Payment",
@@ -144,6 +149,39 @@ export const columns: ColumnDef<Appointment>[] = [
         <Badge variant="outline" className="text-xs">
           {paymentModeLabels[paymentMode] ?? paymentMode}
         </Badge>
+      );
+    },
+  },
+  // ✅ NEW: Reference Number column
+  {
+    accessorKey: "referenceNumber",
+    header: "Reference No.",
+    cell: ({ row }) => {
+      const appointment = row.original as any;
+      const { serviceName } = appointment;
+
+      // Only relevant for SOG with online payment
+      if (serviceName !== 'SOG') {
+        return <span className="text-xs text-muted-foreground">—</span>;
+      }
+
+      if (appointment.referenceNumber) {
+        return (
+          <div className="space-y-0.5">
+            <span className="font-mono text-xs font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded">
+              {appointment.referenceNumber}
+            </span>
+          </div>
+        );
+      }
+
+      // Show payment status if no reference number yet
+      const paymentStatus = appointment.paymentStatus;
+      const colorClass = paymentStatusColors[paymentStatus] ?? 'text-muted-foreground';
+      return (
+        <span className={`text-xs ${colorClass}`}>
+          {paymentStatus ?? '—'}
+        </span>
       );
     },
   },
@@ -223,6 +261,11 @@ export const columns: ColumnDef<Appointment>[] = [
             {appointment.appointmentCode && (
               <DropdownMenuItem onClick={() => navigator.clipboard.writeText(appointment.appointmentCode!)}>
                 Copy Appointment Code
+              </DropdownMenuItem>
+            )}
+            {appointment.referenceNumber && (
+              <DropdownMenuItem onClick={() => navigator.clipboard.writeText(appointment.referenceNumber)}>
+                Copy Reference Number
               </DropdownMenuItem>
             )}
             {appointment.documentUrl && (
