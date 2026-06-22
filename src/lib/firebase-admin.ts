@@ -1,10 +1,11 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-const privateKey = Buffer.from(
-  process.env.FIREBASE_PRIVATE_KEY_B64!,
-  'base64'
-).toString('utf-8');
+const rawKey = process.env.FIREBASE_PRIVATE_KEY ?? '';
+
+const privateKey = rawKey
+  .replace(/^"+|"+$/g, '')  // strip wrapping quotes if any
+  .replace(/\\n/g, '\n');   // convert escaped newlines
 
 const adminApp = getApps().length
   ? getApps()[0]
