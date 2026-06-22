@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Upload, X, FileText, Loader2 } from 'lucide-react';
 
-// 🛠️ FIREBASE IMPORTS
 import { db, auth } from '@/lib/firebase'; 
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -21,14 +20,20 @@ const timeSlots = [
   '01:00 PM', '01:30 PM', '02:00 PM', '02:30 PM', '03:00 PM', '03:30 PM',
 ];
 
-// Generates a short, human-typeable code like "APPT-0620-4821"
 function generateAppointmentCode(): string {
   const now = new Date();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
-  const randomSuffix = Math.floor(1000 + Math.random() * 9000); // 4-digit
+  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
   return `APPT-${mm}${dd}-${randomSuffix}`;
 }
+
+const PAYMENT_MODES = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'gcash', label: 'GCash' },
+  { value: 'maya', label: 'Maya' },
+  { value: 'credit_debit_card', label: 'Credit / Debit Card' },
+];
 
 export default function BookAppointmentPage() {
   const [service, setService] = useState<string>('');
@@ -39,6 +44,7 @@ export default function BookAppointmentPage() {
   const [email, setEmail] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [paymentMode, setPaymentMode] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +71,15 @@ export default function BookAppointmentPage() {
         variant: 'destructive',
         title: 'Missing Information',
         description: 'Please fill out all required fields.',
+      });
+      return;
+    }
+
+    if (service === 'SOG' && !paymentMode) {
+      toast({
+        variant: 'destructive',
+        title: 'Missing Payment Mode',
+        description: 'Please select a mode of payment for SOG.',
       });
       return;
     }
@@ -113,6 +128,7 @@ export default function BookAppointmentPage() {
         checkedIn: false,
         hasAttachment: !!selectedFile,
         fileName: selectedFile ? selectedFile.name : null,
+        paymentMode: service === 'SOG' ? paymentMode : null,
         createdAt: serverTimestamp()
       });
 
@@ -128,7 +144,7 @@ export default function BookAppointmentPage() {
       setEmail('');
       setContactNumber('');
       setSelectedFile(null);
-
+      setPaymentMode('');
       router.push('/dashboard');
 
     } catch (error: any) {
@@ -155,7 +171,13 @@ export default function BookAppointmentPage() {
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="service">Service Type</Label>
-              <Select onValueChange={setService} value={service}>
+              <Select
+                onValueChange={(val) => {
+                  setService(val);
+                  setPaymentMode('');
+                }}
+                value={service}
+              >
                 <SelectTrigger id="service" className="w-full md:max-w-sm">
                   <SelectValue placeholder="Select a service" />
                 </SelectTrigger>
@@ -166,6 +188,27 @@ export default function BookAppointmentPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {service === 'SOG' && (
+              <div className="space-y-2">
+                <Label htmlFor="paymentMode">Mode of Payment</Label>
+                <Select onValueChange={setPaymentMode} value={paymentMode}>
+                  <SelectTrigger id="paymentMode" className="w-full md:max-w-sm">
+                    <SelectValue placeholder="Select payment mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_MODES.map((mode) => (
+                      <SelectItem key={mode.value} value={mode.value}>
+                        {mode.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  SOG processing requires payment. Please select your preferred mode.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-4">
               <Label>Appointment Date & Time</Label>

@@ -14,6 +14,7 @@ export type Appointment = {
   checkedIn?: boolean;
   checkedInAt?: string;
   queueNumber?: string;
-  createdAt: any; // Firestore ServerTimestamp
-  updatedAt: any; // Firestore ServerTimestamp
+  paymentMode?: 'cash' | 'gcash' | 'maya' | 'credit_debit_card' | null; // ✅ NEW
+  createdAt: any;
+  updatedAt: any;
 };

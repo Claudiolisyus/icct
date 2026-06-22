@@ -22,6 +22,14 @@ const statusColors: { [key: string]: 'default' | 'secondary' | 'destructive' | '
   Cancelled: 'destructive',
 };
 
+// ✅ NEW: Payment mode display labels
+const paymentModeLabels: { [key: string]: string } = {
+  cash: 'Cash',
+  gcash: 'GCash',
+  maya: 'Maya',
+  credit_debit_card: 'Credit / Debit Card',
+};
+
 async function handleSendReminder(appointment: Appointment, toast: any) {
   toast({ title: 'AI Assistant', description: 'Generating personalized reminder...' });
   try {
@@ -119,6 +127,25 @@ export const columns: ColumnDef<Appointment>[] = [
   {
     accessorKey: "serviceName",
     header: "Service",
+  },
+  // ✅ NEW: Payment mode column
+  {
+    accessorKey: "paymentMode",
+    header: "Payment",
+    cell: ({ row }) => {
+      const { serviceName, paymentMode } = row.original;
+      if (serviceName !== 'SOG') {
+        return <span className="text-xs text-muted-foreground">—</span>;
+      }
+      if (!paymentMode) {
+        return <span className="text-xs text-muted-foreground">Not set</span>;
+      }
+      return (
+        <Badge variant="outline" className="text-xs">
+          {paymentModeLabels[paymentMode] ?? paymentMode}
+        </Badge>
+      );
+    },
   },
   {
     accessorKey: "appointmentCode",

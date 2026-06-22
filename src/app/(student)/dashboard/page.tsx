@@ -6,9 +6,8 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from '@/hooks/use-toast';
-import { CalendarPlus, Clock, Loader2, XCircle, Copy, QrCode } from "lucide-react";
+import { CalendarPlus, Clock, Loader2, XCircle, Copy, QrCode, CreditCard } from "lucide-react"; // ✅ Added CreditCard icon
 
-// 🛠️ FIREBASE IMPORTS
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -18,6 +17,14 @@ const statusColors: { [key: string]: 'default' | 'secondary' | 'destructive' | '
   Pending: 'secondary',
   Completed: 'outline',
   Cancelled: 'destructive',
+};
+
+// ✅ NEW: Payment mode display labels
+const paymentModeLabels: { [key: string]: string } = {
+  cash: 'Cash',
+  gcash: 'GCash',
+  maya: 'Maya',
+  credit_debit_card: 'Credit / Debit Card',
 };
 
 export default function StudentDashboard() {
@@ -62,9 +69,7 @@ export default function StudentDashboard() {
 
     try {
       const appointmentRef = doc(db, 'appointments', appointmentId);
-      await updateDoc(appointmentRef, {
-        status: 'Cancelled'
-      });
+      await updateDoc(appointmentRef, { status: 'Cancelled' });
       toast({
         title: "Appointment Cancelled",
         description: "Your appointment has been successfully removed from the queue.",
@@ -128,6 +133,14 @@ export default function StudentDashboard() {
                         <span>{new Date(app.appointmentDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
 
+                      {/* ✅ NEW: Payment mode — only shown for SOG */}
+                      {app.serviceName === 'SOG' && app.paymentMode && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <CreditCard className="h-4 w-4" />
+                          <span>Payment: <span className="font-medium text-foreground">{paymentModeLabels[app.paymentMode] ?? app.paymentMode}</span></span>
+                        </div>
+                      )}
+
                       {app.appointmentCode && (
                         <div className={`rounded-md border p-3 ${app.status === 'Confirmed' ? 'bg-primary/5 border-primary/30' : 'bg-muted border-dashed'}`}>
                           <div className="flex items-center justify-between gap-2">
@@ -181,23 +194,32 @@ export default function StudentDashboard() {
             <h2 className="text-xl font-semibold mb-4 font-headline opacity-70">Past Appointment Records</h2>
             {pastAppointments.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {pastAppointments.map(app => (
-                      <Card key={app.id} className="bg-muted opacity-80">
-                          <CardHeader>
-                              <div className="flex items-center justify-between">
-                                  <CardTitle className="text-lg">{app.serviceName}</CardTitle>
-                                  <Badge variant={statusColors[app.status] || 'outline'}>{app.status}</Badge>
-                              </div>
-                              <CardDescription>
-                                  {new Date(app.appointmentDateTime).toLocaleDateString()}
-                              </CardDescription>
-                          </CardHeader>
-                          <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Clock className="h-4 w-4" />
-                              <span>{new Date(app.appointmentDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          </CardContent>
-                      </Card>
-                  ))}
+                {pastAppointments.map(app => (
+                  <Card key={app.id} className="bg-muted opacity-80">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{app.serviceName}</CardTitle>
+                        <Badge variant={statusColors[app.status] || 'outline'}>{app.status}</Badge>
+                      </div>
+                      <CardDescription>
+                        {new Date(app.appointmentDateTime).toLocaleDateString()}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                        <span>{new Date(app.appointmentDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      {/* ✅ NEW: Payment mode in past records too */}
+                      {app.serviceName === 'SOG' && app.paymentMode && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <CreditCard className="h-4 w-4" />
+                          <span>Payment: <span className="font-medium">{paymentModeLabels[app.paymentMode] ?? app.paymentMode}</span></span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             ) : (
               <div className="text-center py-8 border-2 border-dashed rounded-lg opacity-50">
