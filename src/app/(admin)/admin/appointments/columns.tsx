@@ -7,12 +7,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
-import { MoreHorizontal, MessageSquare, Send, CheckCircle2 } from "lucide-react"
+import { MoreHorizontal, MessageSquare, Send, CheckCircle2, Trash2 } from "lucide-react" // Added Trash2 icon
 import { useToast } from "@/hooks/use-toast"
 import { sendPersonalizedReminder } from "@/ai/flows/personalized-appointment-reminders"
 import { smartFollowUpAfterAppointments } from "@/ai/flows/smart-follow-up-after-appointments"
 import Link from "next/link"
-import { doc, updateDoc } from "firebase/firestore"
+import { doc, updateDoc, deleteDoc } from "firebase/firestore" // Added deleteDoc
 import { db } from "@/lib/firebase"
 
 const statusColors: { [key: string]: 'default' | 'secondary' | 'destructive' | 'outline' } = {
@@ -80,6 +80,25 @@ async function handleUpdateStatus(appointmentId: string, status: 'Confirmed' | '
       variant: 'destructive',
       title: 'Update Failed',
       description: error.message || 'Could not update appointment status.',
+    });
+  }
+}
+
+async function handleDeleteAppointment(appointmentId: string, toast: any) {
+  const confirmed = window.confirm("Are you sure you want to permanently delete this appointment record? This action cannot be undone.");
+  if (!confirmed) return;
+
+  try {
+    await deleteDoc(doc(db, 'appointments', appointmentId));
+    toast({
+      title: 'Record Deleted',
+      description: 'The appointment has been permanently removed from the database.',
+    });
+  } catch (error: any) {
+    toast({
+      variant: 'destructive',
+      title: 'Deletion Failed',
+      description: error.message || 'Could not delete the record.',
     });
   }
 }
@@ -152,7 +171,6 @@ export const columns: ColumnDef<Appointment>[] = [
       );
     },
   },
-  // ✅ NEW: Reference Number column
   {
     accessorKey: "referenceNumber",
     header: "Reference No.",
@@ -160,7 +178,6 @@ export const columns: ColumnDef<Appointment>[] = [
       const appointment = row.original as any;
       const { serviceName } = appointment;
 
-      // Only relevant for SOG with online payment
       if (serviceName !== 'SOG') {
         return <span className="text-xs text-muted-foreground">—</span>;
       }
@@ -175,7 +192,6 @@ export const columns: ColumnDef<Appointment>[] = [
         );
       }
 
-      // Show payment status if no reference number yet
       const paymentStatus = appointment.paymentStatus;
       const colorClass = paymentStatusColors[paymentStatus] ?? 'text-muted-foreground';
       return (
@@ -244,6 +260,7 @@ export const columns: ColumnDef<Appointment>[] = [
     cell: function Cell({ row }) {
       const appointment = row.original as any;
       const { toast } = useToast();
+      const isPastOrEnded = appointment.status === 'Completed' || appointment.status === 'Cancelled';
 
       return (
         <DropdownMenu>
@@ -275,18 +292,44 @@ export const columns: ColumnDef<Appointment>[] = [
                 </Link>
               </DropdownMenuItem>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => handleUpdateStatus(appointment.id, 'Confirmed', toast)}>
-              Approve
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleUpdateStatus(appointment.id, 'Cancelled', toast)}>
-              Cancel
-            </DropdownMenuItem>
-            {appointment.checkedIn && appointment.status !== 'Completed' && (
-              <DropdownMenuItem onClick={() => handleUpdateStatus(appointment.id, 'Completed', toast)}>
-                Finish Appointment
-              </DropdownMenuItem>
+            
+            {/* Active Commands */}
+            {!isPastOrEnded && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleUpdateStatus(appointment.id, 'Confirmed', toast)}>
+                  Approve
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleUpdateStatus(appointment.id, 'Cancelled', toast)}>
+                  Cancel
+                </DropdownMenuItem>
+                {appointment.checkedIn && appointment.status !== 'Completed' && (
+                  <DropdownMenuItem onClick={() => handleUpdateStatus(appointment.id, 'Completed', toast)}>
+                    Finish Appointment
+                  </DropdownMenuItem>
+                )}
+              </>
             )}
+
+            {/* Archived Only Commands */}
+            {isPastOrEnded && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleUpdateStatus(appointment.id, 'Confirmed', toast)}>
+                  Re-approve (Move to Active)
+                </DropdownMenuItem>
+                
+                {/* ✅ NEW: Red Delete Option that only displays inside the Archive tab layout */}
+                <DropdownMenuItem 
+                  onClick={() => handleDeleteAppointment(appointment.id, toast)}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  <span>Delete Permanently</span>
+                </DropdownMenuItem>
+              </>
+            )}
+
             <DropdownMenuSeparator />
             <DropdownMenuLabel>AI Actions</DropdownMenuLabel>
             <DropdownMenuItem onClick={() => handleSendReminder(appointment, toast)}>
